@@ -1,97 +1,151 @@
 
+import requests
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, LSTM
+import talib
+import time
 
-# Charger les données depuis le fichier CSV
-dataframe = pd.read_csv("BTCUSDT_hourly_2023.csv")
+# Fonction pour récupérer les données OHLC depuis Kraken
+def fetch_ohlc_data(symbol, time_frame, start_time, end_time=None):
+    all_data = []
+    current_time = start_time
 
-# Conversion de la colonne 'timestamp' en format datetime
-dataframe['timestamp'] = pd.to_datetime(dataframe['timestamp'])
+    while True:
+        endpoint = 'https://api.kraken.com/0/public/OHLC'
+        parameters = {
+            'pair': symbol,
+            'interval': time_frame,
+            'since': current_time
+        }
+        reply = requests.get(endpoint, params=parameters)
+        json_data = reply.json()
 
-# Utiliser la colonne 'timestamp' comme index
-dataframe.set_index('timestamp', inplace=True)
+        if reply.status_code == 200:
+            ohlc_values = json_data['result'][symbol]
+            dataframe = pd.DataFrame(ohlc_values, columns=[
+                'time', 'open_price', 'high_price', 'low_price', 'close_price', 'end_time', 'trade_volume',
+                'quote_volume', 'trade_count', 'buy_volume', 'buy_quote_volume', 'ignore'
+            ])
+            all_data.append(dataframe)
+            current_time = int(dataframe['time'].iloc[-1])  # Dernier timestamp récupéré
+            time.sleep(1)  # Pause de 1 seconde entre les requêtes
 
-# Garder uniquement la colonne 'close' pour le modèle LSTM
-close_prices = dataframe['close']
+            # Arrêt si le timestamp actuel dépasse la période spécifiée
+            if end_time and current_time >= end_time:
+                break
+        else:
+            print(f"Erreur lors de la récupération des données de Kraken : {reply.status_code}")
+            break
 
-# Normaliser les prix de clôture
-scaler = MinMaxScaler(feature_range=(0, 1))
-scaled_data = scaler.fit_transform(close_prices.values.reshape(-1, 1))
+    full_data = pd.concat(all_data)
+    full_data['time'] = pd.to_datetime(full_data['time'], unit='s')
+    full_data[['open_price', 'high_price', 'low_price', 'close_price', 'trade_volume']] = full_data[['open_price', 'high_price', 'low_price', 'close_price', 'trade_volume']].astype(float)
+    return full_data
 
-# Diviser les données en ensembles d'entraînement et de test
-train_size = int(len(scaled_data) * 0.8)
-train_data = scaled_data[:train_size]
-test_data = scaled_data[train_size:]
+# Configuration des paramètres
+symbol = 'XXBTZUSD'
+time_frame = 60  # Intervalle de  heure
+start_time = int(pd.Timestamp('2019-01-01').timestamp())  # À partir du 1er janvier 2019
+end_time = int(pd.Timestamp('2024-11-24').timestamp())  # Jusqu'à aujourd'hui
 
-# Fonction pour créer un ensemble de données pour l'entraînement LSTM
-def create_dataset(data, time_step=1):
-    X, Y = [], []
-    for i in range(len(data) - time_step - 1):
-        a = data[i:(i + time_step), 0]
-        X.append(a)
-        Y.append(data[i + time_step, 0])
-    return np.array(X), np.array(Y)
+# Récupération des données avec plusieurs requêtes successives
+dataframe = fetch_ohlc_data(symbol, time_frame, start_time, end_time)
 
-time_step = 60
-X_train, y_train = create_dataset(train_data, time_step)
-X_test, y_test = create_dataset(test_data, time_step)
+if dataframe is not None:
+    # Enregistrement des données dans un fichier CSV
+    file_name = "BTCUSD_kraken_hourly_2019_to_2024.csv"
+    dataframe.to_csv(file_name, index=False)
+    print(f"Données enregistrées dans {file_name}")
 
-# Reshape des données pour LSTM [samples, time steps, features]
-X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
-X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
+    # Chargement des données depuis le fichier CSV
+    csv_file = "BTCUSD_kraken_hourly_2019_to_2024.csv"
+    dataframe = pd.read_csv(csv_file)
 
-# Création du modèle LSTM
-model = Sequential()
-model.add(LSTM(50, return_sequences=True, input_shape=(time_step, 1)))
-model.add(LSTM(50, return_sequences=False))
-model.add(Dense(25))
-model.add(Dense(1))
+    # Conversion de la colonne 'time' en format datetime
+    dataframe['time'] = pd.to_datetime(dataframe['time'])
 
-# Compilation du modèle
-model.compile(optimizer='adam', loss='mean_squared_error')
+    # Vérification des données
+    print(dataframe.head())
+    print(dataframe.info())
 
-# Entraînement du modèle
-model.fit(X_train, y_train, batch_size=1, epochs=1)
+    # Calcul du VWAP (Volume Weighted Average Price)
+    dataframe['cum_volume'] = dataframe['trade_volume'].cumsum()
+    dataframe['cum_vwap'] = (dataframe['close_price'] * dataframe['trade_volume']).cumsum()
+    dataframe['VWAP'] = dataframe['cum_vwap'] / dataframe['cum_volume']
 
-# Prédictions
-train_predict = model.predict(X_train)
-test_predict = model.predict(X_test)
+    # Calcul de la volatilité (écart-type des rendements logarithmiques)
+    dataframe['log_return'] = dataframe['close_price'].apply(lambda x: np.log(x)).diff()
+    dataframe['volatility'] = dataframe['log_return'].rolling(window=30).std() * np.sqrt(30)  # Volatilité sur 30 périodes
 
-# Reconvertir les données prédictes à l'échelle originale
-train_predict = scaler.inverse_transform(train_predict)
-test_predict = scaler.inverse_transform(test_predict)
+    # Calcul des Bandes de Bollinger
+    dataframe['upper_band'], dataframe['middle_band'], dataframe['lower_band'] = talib.BBANDS(dataframe['close_price'], timeperiod=20)
 
-# Visualisation des résultats
-plt.figure(figsize=(14, 7))
-plt.plot(close_prices.index, close_prices, label='Données Réelles')
-train_predict_plot = np.empty_like(scaled_data)
-train_predict_plot[:, :] = np.nan
-train_predict_plot[time_step:len(train_predict) + time_step, :] = train_predict
-plt.plot(close_prices.index, train_predict_plot, label='Prédictions Entraînement', color='orange')
+    # Calcul de la Volatilité de Chaikin (Chaikin Volatility)
+    dataframe['high_low_diff'] = dataframe['high_price'] - dataframe['low_price']
+    dataframe['chaikin_volatility'] = talib.SMA(dataframe['high_low_diff'], timeperiod=10) / talib.SMA(dataframe['high_low_diff'], timeperiod=10).shift(10) - 1
 
-test_predict_plot = np.empty_like(scaled_data)
-test_predict_plot[:, :] = np.nan
-test_predict_plot[len(train_predict) + (time_step * 2) + 1:len(scaled_data) - 1, :] = test_predict
-plt.plot(close_prices.index, test_predict_plot, label='Prédictions Test', color='red')
+    # Affichage des 100 premières lignes
+    print("Affichage des 100 premières lignes de données :")
+    print(dataframe.head(100))
 
-plt.xlabel('Date')
-plt.ylabel('Prix de clôture')
-plt.title('Prédiction des Prix du Bitcoin avec LSTM')
-plt.legend()
-plt.show()
+    # Graphique combiné des prix de clôture et des indicateurs
+    plt.figure(figsize=(14, 8))
+    plt.plot(dataframe['time'], dataframe['close_price'], label='Prix de clôture')
+    plt.plot(dataframe['time'], dataframe['VWAP'], label='VWAP', linestyle='--')
+    plt.plot(dataframe['time'], dataframe['upper_band'], label='Upper Band', linestyle='--')
+    plt.plot(dataframe['time'], dataframe['middle_band'], label='Middle Band', linestyle='--')
+    plt.plot(dataframe['time'], dataframe['lower_band'], label='Lower Band', linestyle='--')
+    plt.plot(dataframe['time'], dataframe['chaikin_volatility'], label='Chaikin Volatility', linestyle=':')
+    plt.title("Prix de clôture BTC/USD avec VWAP, Bandes de Bollinger et Volatilité de Chaikin (2019-2024)")
+    plt.xlabel("Date")
+    plt.ylabel("Valeur")
+    plt.legend()
+    plt.grid()
+    plt.show()
 
+    # Graphique des volumes
+    plt.figure(figsize=(12, 6))
+    plt.bar(dataframe['time'], dataframe['trade_volume'], width=0.01)
+    plt.title("Volumes échangés BTC/USD (2019-2024)")
+    plt.xlabel("Date")
+    plt.ylabel("Volume")
+    plt.grid()
+    plt.show()
 
-print(dataframe.head())
-print(dataframe['close'].head())
+    # Graphique de la volatilité
+    plt.figure(figsize=(12, 6))
+    plt.plot(dataframe['time'], dataframe['volatility'], label='Volatilité')
+    plt.title("Volatilité BTC/USD (2019-2024)")
+    plt.xlabel("Date")
+    plt.ylabel("Volatilité (écart-type des rendements)")
+    plt.legend()
+    plt.grid()
+    plt.show()
 
-print(X_train.shape, y_train.shape)
-print(X_test.shape, y_test.shape)
+    # Graphique des Bandes de Bollinger
+    plt.figure(figsize=(14, 8))
+    plt.plot(dataframe['time'], dataframe['close_price'], label='Prix de clôture')
+    plt.plot(dataframe['time'], dataframe['upper_band'], label='Bande Supérieure', linestyle='--')
+    plt.plot(dataframe['time'], dataframe['middle_band'], label='Bande Centrale', linestyle='--')
+    plt.plot(dataframe['time'], dataframe['lower_band'], label='Bande Inférieure', linestyle='--')
+    plt.title("Bandes de Bollinger BTC/USD (2019-2024)")
+    plt.xlabel("Date")
+    plt.ylabel("Prix (USD)")
+    plt.legend()
+    plt.grid()
+    plt.show()
 
-print(train_predict)
-print(test_predict)
+    # Graphique de la Volatilité de Chaikin
+    plt.figure(figsize=(14, 8))
+    plt.plot(dataframe['time'], dataframe['chaikin_volatility'], label='Volatilité de Chaikin')
+    plt.title("Volatilité de Chaikin BTC/USD (2019-2024)")
+    plt.xlabel("Date")
+    plt.ylabel("Chaikin Volatility")
+    plt.legend()
+    plt.grid()
+    plt.show()
 
-plt.show(block=True)
+else:
+    print("Impossible de récupérer les données de Kraken.")
+
