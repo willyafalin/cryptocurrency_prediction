@@ -146,6 +146,107 @@ if dataframe is not None:
     plt.grid()
     plt.show()
 
+
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
+import matplotlib.pyplot as plt
+
+# Charger les données depuis le fichier CSV
+dataframe = pd.read_csv("BTCUSD_kraken_hourly_2019_to_2024.csv")
+
+# Conversion de la colonne 'time' en format datetime
+dataframe['time'] = pd.to_datetime(dataframe['time'])
+
+# Variables indépendantes (features) et dépendante (target)
+X = dataframe[['open_price', 'high_price', 'low_price', 'trade_volume']]
+y = dataframe['close_price']
+
+# Division des données en ensembles d'entraînement et de test
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Régression linéaire simple (utilisant uniquement 'open_price')
+X_simple_train = X_train[['open_price']]
+X_simple_test = X_test[['open_price']]
+
+simple_model = LinearRegression()
+simple_model.fit(X_simple_train, y_train)
+
+# Prédiction
+y_simple_pred = simple_model.predict(X_simple_test)
+
+# Régression linéaire multiple
+multiple_model = LinearRegression()
+multiple_model.fit(X_train, y_train)
+
+# Prédiction
+y_multiple_pred = multiple_model.predict(X_test)
+
+# Évaluation des modèles
+simple_mse = mean_squared_error(y_test, y_simple_pred)
+simple_r2 = r2_score(y_test, y_simple_pred)
+
+multiple_mse = mean_squared_error(y_test, y_multiple_pred)
+multiple_r2 = r2_score(y_test, y_multiple_pred)
+
+print("Régression Linéaire Simple :")
+print("MSE:", simple_mse)
+print("R²:", simple_r2)
+
+print("\nRégression Linéaire Multiple :")
+print("MSE:", multiple_mse)
+print("R²:", multiple_r2)
+
+# Visualisation des résultats de la régression linéaire simple
+plt.scatter(X_simple_test, y_test, color='blue', label='Données Réelles')
+plt.plot(X_simple_test, y_simple_pred, color='red', label='Prédictions')
+plt.xlabel('Prix d\'ouverture')
+plt.ylabel('Prix de clôture')
+plt.title('Régression Linéaire Simple')
+plt.legend()
+plt.show()
+
+# Visualisation des résultats de la régression linéaire multiple
+plt.scatter(y_test, y_multiple_pred, color='green', label='Prédictions vs Réel')
+plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], color='red', linewidth=2)
+plt.xlabel('Prix de clôture réel')
+plt.ylabel('Prix de clôture prédit')
+plt.title('Régression Linéaire Multiple')
+plt.legend()
+plt.show()
+
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Charger les données depuis le fichier CSV
+dataframe = pd.read_csv("BTCUSD_kraken_hourly_2019_to_2024.csv")
+
+# Conversion de la colonne 'time' en format datetime
+dataframe['time'] = pd.to_datetime(dataframe['time'])
+
+# Calcul de la matrice de corrélation
+correlation_matrix = dataframe[['open_price', 'high_price', 'low_price', 'close_price', 'trade_volume']].corr()
+
+# Affichage de la matrice de corrélation
+print(correlation_matrix)
+
+# Visualisation de la matrice de corrélation avec une heatmap
+plt.figure(figsize=(10, 8))
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', cbar=True)
+plt.title('Heatmap de la Matrice de Corrélation')
+plt.show()
+
+
+
+
+
+
+
+
+
 else:
     print("Impossible de récupérer les données de Kraken.")
 
