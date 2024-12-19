@@ -368,4 +368,89 @@ plt.title('Prédiction des Prix du Bitcoin avec LSTM')
 plt.legend()
 plt.show()
 
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense, LayerNormalization, Dropout, MultiHeadAttention
+from tensorflow.keras.optimizers import Adam
+import matplotlib.pyplot as plt
+
+# Charger les données depuis le fichier CSV
+data = pd.read_csv("BTCUSD_kraken_hourly_2019_to_2024.csv")
+
+# Conversion de la colonne 'time' en format datetime
+data['time'] = pd.to_datetime(data['time'])
+
+# Utiliser la colonne 'time' comme index
+data.set_index('time', inplace=True)
+
+# Calculer la volatilité (écart-type sur une période donnée)
+data['Volatility'] = data['close_price'].rolling(window=10).std()
+
+# Remplir les valeurs manquantes de volatilité avec la moyenne
+data['Volatility'].fillna(data['Volatility'].mean(), inplace=True)
+
+# Sélectionner les colonnes nécessaires
+data = data[['close_price', 'trade_volume', 'Volatility', 'open_price', 'high_price', 'low_price']]
+
+# Prétraiter les données
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled_data = scaler.fit_transform(data)
+
+# Préparer les données pour le modèle Transformer
+sequence_length = 60
+x_train, y_train = [], []
+for i in range(sequence_length, len(scaled_data)):
+    x_train.append(scaled_data[i-sequence_length:i])
+    y_train.append(scaled_data[i, 0])  # prédire la variable 'close_price'
+
+x_train, y_train = np.array(x_train), np.array(y_train)
+
+# Définir le modèle Transformer
+def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
+    x = MultiHeadAttention(key_dim=head_size, num_heads=num_heads, dropout=dropout)(inputs, inputs)
+    x = Dropout(dropout)(x)
+    x = LayerNormalization(epsilon=1e-6)(x)
+    res = x + inputs
+
+    x = Dense(ff_dim, activation="relu")(res)
+    x = Dropout(dropout)(x)
+    x = Dense(inputs.shape[-1])(x)
+    return LayerNormalization(epsilon=1e-6)(x + res)
+
+input_layer = Input(shape=(x_train.shape[1], x_train.shape[2]))
+x = transformer_encoder(input_layer, head_size=256, num_heads=4, ff_dim=4, dropout=0.1)
+x = transformer_encoder(x, head_size=256, num_heads=4, ff_dim=4, dropout=0.1)
+x = Dense(1)(x)
+
+model = Model(inputs=input_layer, outputs=x)
+model.compile(optimizer=Adam(learning_rate=0.001), loss='mean_squared_error')
+
+# Entraîner le modèle
+model.fit(x_train, y_train, epochs=25, batch_size=32)
+
+# Préparer les données de test et faire des prédictions
+model_inputs = data.values
+model_inputs = scaler.transform(model_inputs)
+
+x_test = []
+for i in range(sequence_length, len(model_inputs)):
+    x_test.append(model_inputs[i-sequence_length:i])
+
+x_test = np.array(x_test)
+
+predicted_prices = model.predict(x_test)
+predicted_prices = scaler.inverse_transform(predicted_prices)
+
+# Afficher les résultats
+plt.plot(data.index, data['close_price'], color='black', label='Prix réel')
+plt.plot(data.index[-len(predicted_prices):], predicted_prices, color='green', label='Prix prédit')
+plt.xlabel('Date')
+plt.ylabel('Prix')
+plt.legend()
+plt.show()
+
+
 
