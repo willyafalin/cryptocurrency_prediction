@@ -783,29 +783,4 @@ plt.show()
 
 
 
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-import numpy as np
-
-# Extraire les 60 derniers jours de volatilité réalisée et prédite
-realized_volatility = data_60_days['realized_volatility'].dropna()
-predicted_volatility = data_60_days['predicted_volatility'].dropna()
-
-# Assurez-vous que les indices correspondent
-realized_volatility = realized_volatility.loc[predicted_volatility.index]
-
-# Calculer les métriques
-mse = mean_squared_error(realized_volatility, predicted_volatility)
-rmse = np.sqrt(mse)
-mae = mean_absolute_error(realized_volatility, predicted_volatility)
-r2 = r2_score(realized_volatility, predicted_volatility)
-
-# Afficher les résultats
-print("Évaluation des prédictions de volatilité :")
-print(f"Mean Squared Error (MSE): {mse:.4f}")
-print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
-print(f"Mean Absolute Error (MAE): {mae:.4f}")
-print(f"R² Score: {r2:.4f}")
-
-
-
 
