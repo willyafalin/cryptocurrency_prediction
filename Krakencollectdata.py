@@ -661,5 +661,30 @@ plt.title('Prédiction des Prix du Bitcoin avec LSTM')
 plt.legend()
 plt.show()
 
+from arch import arch_model
+
+# Extraire les prix de clôture pour modéliser la volatilité
+close_prices = dataframe['close'].values
+
+# Diviser les données en ensembles d'entraînement et de test
+train_size = int(len(close_prices) * 0.8)
+train_data = close_prices[:train_size]
+test_data = close_prices[train_size:]
+
+# Ajuster un modèle GARCH(1,1) sur les données d'entraînement
+garch_model = arch_model(train_data, vol='Garch', p=1, q=1)
+garch_fit = garch_model.fit(disp="off")
+
+# Prédire la volatilité sur les données de test
+test_volatility = garch_fit.forecast(horizon=len(test_data)).variance[-1:]
+
+# Visualiser la volatilité prédite
+plt.figure(figsize=(14, 7))
+plt.plot(dataframe.index[train_size:], np.sqrt(test_volatility), label='Volatilité Prédite', color='red')
+plt.title('Estimation de la Volatilité du Bitcoin avec GARCH')
+plt.xlabel('Date')
+plt.ylabel('Volatilité')
+plt.legend()
+plt.show()
 
 
