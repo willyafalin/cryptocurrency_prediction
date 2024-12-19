@@ -549,4 +549,117 @@ print(test_predict)
 
 plt.show(block=True)
 
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM
+from tensorflow.keras.optimizers import RMSprop
+
+# Charger les données depuis le fichier CSV
+dataframe = pd.read_csv("BTCUSDT_hourly_2023.csv")
+
+# Conversion de la colonne 'timestamp' en format datetime
+dataframe['timestamp'] = pd.to_datetime(dataframe['timestamp'])
+
+# Utiliser la colonne 'timestamp' comme index
+dataframe.set_index('timestamp', inplace=True)
+
+# Garder plusieurs colonnes pour le modèle LSTM
+features = ['open', 'high', 'low', 'close', 'volume']
+data = dataframe[features]
+
+# Normaliser les caractéristiques
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled_data = scaler.fit_transform(data)
+
+# Diviser les données en ensembles d'entraînement et de test
+train_size = int(len(scaled_data) * 0.8)
+train_data = scaled_data[:train_size]
+test_data = scaled_data[train_size:]
+
+# Fonction pour créer un ensemble de données pour l'entraînement LSTM
+def create_dataset(data, time_step=1):
+    X, Y = [], []
+    for i in range(len(data) - time_step - 1):
+        a = data[i:(i + time_step)]
+        X.append(a)
+        Y.append(data[i + time_step, 3])  # Suppose que 'close' est la quatrième caractéristique (index 3)
+    return np.array(X), np.array(Y)
+
+time_step = 60
+X_train, y_train = create_dataset(train_data, time_step)
+X_test, y_test = create_dataset(test_data, time_step)
+
+# Reshape des données pour LSTM [samples, time steps, features]
+X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], len(features))
+X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], len(features))
+
+# Création du modèle LSTM avec plus de neurones et un autre optimiseur
+model = Sequential()
+model.add(LSTM(100, return_sequences=True, input_shape=(time_step, len(features))))
+model.add(LSTM(100, return_sequences=False))
+model.add(Dense(50))
+model.add(Dense(1))
+
+# Compilation du modèle avec RMSprop et une fonction de perte différente
+model.compile(optimizer=RMSprop(), loss='mean_absolute_error')
+
+# Entraînement du modèle
+model.fit(X_train, y_train, batch_size=32, epochs=10)
+
+# Prédictions
+train_predict = model.predict(X_train)
+test_predict = model.predict(X_test)
+
+# Reconvertir les données prédictes à l'échelle originale
+train_predict = scaler.inverse_transform(np.concatenate([np.zeros((train_predict.shape[0], 3)), train_predict, np.zeros((train_predict.shape[0], 1))], axis=1))[:,3]
+test_predict = scaler.inverse_transform(np.concatenate([np.zeros((test_predict.shape[0], 3)), test_predict, np.zeros((test_predict.shape[0], 1))], axis=1))[:,3]
+
+# Fonction pour prédire des valeurs futures
+def predict_future(model, last_sequence, future_steps, scaler):
+    predictions = []
+    current_sequence = last_sequence
+
+    for _ in range(future_steps):
+        predicted_value = model.predict(current_sequence)
+        predictions.append(predicted_value[0, 0])
+        current_sequence = np.roll(current_sequence, -1)
+        current_sequence[0, -1, 0] = predicted_value
+
+    return scaler.inverse_transform(np.concatenate([np.zeros((len(predictions), 3)), np.array(predictions).reshape(-1, 1), np.zeros((len(predictions), 1))], axis=1))[:,3]
+
+# Dernière séquence de test pour démarrer les prédictions
+last_sequence = X_test[-1].reshape(1, time_step, len(features))
+
+# Prédire les 200 prochaines heures (par exemple)
+future_steps = 8000
+future_predictions = predict_future(model, last_sequence, future_steps, scaler)
+
+# Visualisation des résultats
+plt.figure(figsize=(14, 7))
+plt.plot(dataframe.index, dataframe['close'], label='Données Réelles')
+
+train_predict_plot = np.empty_like(scaled_data[:,3])
+train_predict_plot[:] = np.nan
+train_predict_plot[time_step:len(train_predict) + time_step] = train_predict
+plt.plot(dataframe.index, train_predict_plot, label='Prédictions Entraînement', color='orange')
+
+test_predict_plot = np.empty_like(scaled_data[:,3])
+test_predict_plot[:] = np.nan
+test_predict_plot[len(train_predict) + (time_step * 2) + 1:len(scaled_data) - 1] = test_predict
+plt.plot(dataframe.index, test_predict_plot, label='Prédictions Test', color='red')
+
+# Ajouter les prédictions futures au graphique
+future_dates = pd.date_range(start=dataframe.index[-1], periods=future_steps + 1, freq='H')[1:]
+plt.plot(future_dates, future_predictions, label='Prédictions Futures', color='green')
+
+plt.xlabel('Date')
+plt.ylabel('Prix de clôture')
+plt.title('Prédiction des Prix du Bitcoin avec LSTM')
+plt.legend()
+plt.show()
+
+
 
