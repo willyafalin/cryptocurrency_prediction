@@ -728,5 +728,84 @@ plt.tight_layout()
 plt.show()
 
 
+# GARCH 
+
+
+import pandas as pd
+import numpy as np
+from arch import arch_model
+import matplotlib.pyplot as plt
+
+# Charger les données
+data = pd.read_csv('BTCUSDT_daily_2023.csv')  # Remplacez par votre fichier
+data['timestamp'] = pd.to_datetime(data['timestamp'])
+data.set_index('timestamp', inplace=True)
+
+# Calculer les rendements logarithmiques
+data['returns'] = np.log(data['close'] / data['close'].shift(1))
+data = data.dropna()
+
+# Vérification de stationnarité (ADF Test)
+from statsmodels.tsa.stattools import adfuller
+adf_test = adfuller(data['returns'])
+print("ADF Test Statistic:", adf_test[0])
+print("p-value:", adf_test[1])
+
+# Ajuster un modèle GARCH(1, 1)
+model = arch_model(data['returns'], vol='Garch', p=1, q=1)
+garch_fit = model.fit()
+print(garch_fit.summary())
+
+# Prédictions de volatilité pour les 60 derniers jours
+last_60_returns = data['returns'][-60:]
+forecast = garch_fit.forecast(horizon=1, start=last_60_returns.index[0])
+data['predicted_volatility'] = np.nan
+data.loc[forecast.variance.index, 'predicted_volatility'] = np.sqrt(forecast.variance.values[-60:, 0])
+
+# Calculer la volatilité réalisée pour comparaison
+data['realized_volatility'] = data['returns'].rolling(window=10).std()
+
+# Extraire les 60 derniers jours
+data_60_days = data.iloc[-60:]
+data_nor = data.iloc[-150:]
+
+# Visualisation des résultats
+plt.figure(figsize=(12, 6))
+plt.plot(data_nor.index, data_nor['realized_volatility'], label="Volatilité réalisée", color='blue')
+plt.plot(data_60_days.index, data_60_days['predicted_volatility'], label="Volatilité prédite", color='orange')
+plt.title("Volatilité réalisée vs prédite (GARCH) - 60 derniers jours")
+plt.xlabel("Date")
+plt.ylabel("Volatilité")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+
+
+
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import numpy as np
+
+# Extraire les 60 derniers jours de volatilité réalisée et prédite
+realized_volatility = data_60_days['realized_volatility'].dropna()
+predicted_volatility = data_60_days['predicted_volatility'].dropna()
+
+# Assurez-vous que les indices correspondent
+realized_volatility = realized_volatility.loc[predicted_volatility.index]
+
+# Calculer les métriques
+mse = mean_squared_error(realized_volatility, predicted_volatility)
+rmse = np.sqrt(mse)
+mae = mean_absolute_error(realized_volatility, predicted_volatility)
+r2 = r2_score(realized_volatility, predicted_volatility)
+
+# Afficher les résultats
+print("Évaluation des prédictions de volatilité :")
+print(f"Mean Squared Error (MSE): {mse:.4f}")
+print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
+print(f"Mean Absolute Error (MAE): {mae:.4f}")
+print(f"R² Score: {r2:.4f}")
+
+
 
 
