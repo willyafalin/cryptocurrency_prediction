@@ -688,3 +688,45 @@ plt.legend()
 plt.show()
 
 
+from statsmodels.stats.diagnostic import acorr_ljungbox
+import statsmodels.api as sm
+
+# Ajuster un modèle GARCH(1,1) sur les données d'entraînement
+garch_model = arch_model(train_data, vol='Garch', p=1, q=1)
+garch_fit = garch_model.fit(disp="off")
+
+# Prédire la volatilité sur les données de test
+test_volatility = garch_fit.forecast(horizon=len(test_data)).variance[-1:]
+
+# Calculer les résidus standardisés
+standardized_residuals = garch_fit.resid / garch_fit.conditional_volatility
+
+# Test de Ljung-Box pour les résidus du modèle GARCH
+lb_test = acorr_ljungbox(standardized_residuals, lags=[10], return_df=True)
+print("Test de Ljung-Box pour les résidus:")
+print(lb_test)
+
+# Test ARCH pour l'hétéroscédasticité résiduelle
+arch_test = sm.stats.diagnostic.het_arch(standardized_residuals)
+print("\nTest ARCH pour l'hétéroscédasticité résiduelle:")
+print(f"Statistique: {arch_test[0]}, p-valeur: {arch_test[1]}")
+
+# Visualiser les résidus standardisés et leur autocorrélation
+plt.figure(figsize=(14, 7))
+
+# Graphique des résidus standardisés
+plt.subplot(2, 1, 1)
+plt.plot(standardized_residuals)
+plt.title('Résidus Standardisés du Modèle GARCH')
+
+# Graphique de l'Autocorrélation des résidus standardisés
+plt.subplot(2, 1, 2)
+sm.graphics.tsa.plot_acf(standardized_residuals, lags=40, ax=plt.gca())
+plt.title('Autocorrélation des Résidus Standardisés')
+
+plt.tight_layout()
+plt.show()
+
+
+
+
