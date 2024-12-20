@@ -1,0 +1,11 @@
+numpy==2.0.0 
+pandas 
+matplotlib 
+seaborn 
+requests 
+ta 
+plotly 
+scikit-learn 
+tensorflow==2.18.0 
+statsmodels
+python-binance
