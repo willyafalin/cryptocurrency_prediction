@@ -25,6 +25,10 @@ import statsmodels
 import datetime
 from binance.client import Client
 import time
+from arch import arch_model
+from sklearn.metrics import mean_absolute_error
+from sklearn.preprocessing import StandardScaler
+
 
 # Fonction pour extraire des données historiques de Binance
 def get_historical_data(symbol, interval, start_date, end_date):
@@ -577,3 +581,60 @@ def inverse_scalling(x, data):
     return x
 
 
+def garch_analysis(data, p, q, dist='normal', window_realized=10, last_n_days=60):
+    """
+    Analyse GARCH pour un tableau de données donné sans afficher les étapes intermédiaires.
+    """
+    # Étape 1 : Calcul des rendements logarithmiques
+    data = data.copy()  # S'assurer que le DataFrame d'origine reste inchangé
+    data.loc[:, 'returns'] = np.log(data['close'] / data['close'].shift(1))
+    data = data.dropna()
+    
+    # Mise à l'échelle des rendements
+    scaler = StandardScaler()
+    data.loc[:, 'scaled_returns'] = scaler.fit_transform(data['returns'].values.reshape(-1, 1))
+    
+    # Ajuster le modèle GARCH
+    model = arch_model(data['scaled_returns'], vol='Garch', p=p, q=q, dist=dist)
+    garch_fit = model.fit(update_freq=5, disp="off")  # Suppression des affichages
+    
+    # Prédictions pour les derniers jours
+    forecast = garch_fit.forecast(horizon=1, start=data.index[-last_n_days])
+    data.loc[:, 'predicted_volatility_scaled'] = np.nan
+    data.loc[forecast.variance.index, 'predicted_volatility_scaled'] = np.sqrt(forecast.variance.values[:, 0])
+    
+    # Calculer la volatilité réalisée
+    data.loc[:, 'realized_volatility'] = data['scaled_returns'].rolling(window=window_realized).std()
+    
+    # Visualisation des résultats
+    data_nor = data.iloc[-(last_n_days * 2):]
+    data_last_n = data.iloc[-last_n_days:]
+    
+    plt.figure(figsize=(12, 6))
+    plt.plot(data_nor.index, data_nor['realized_volatility'], label="Volatilité réalisée", color='blue')
+    plt.plot(data_last_n.index, data_last_n['predicted_volatility_scaled'], label="Volatilité prédite", color='orange')
+    plt.title(f"Volatilité réalisée vs prédite (GARCH) - {last_n_days} derniers jours")
+    plt.xlabel("Date")
+    plt.ylabel("Volatilité (Scalée)")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    
+    # Calcul des métriques
+    realized_volatility = data_last_n['realized_volatility'].dropna()
+    predicted_volatility = data_last_n['predicted_volatility_scaled'].dropna()
+    
+    # Aligner les indices
+    realized_volatility = realized_volatility.loc[predicted_volatility.index]
+    
+    mse = mean_squared_error(realized_volatility, predicted_volatility)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(realized_volatility, predicted_volatility)
+    r2 = r2_score(realized_volatility, predicted_volatility)
+    
+    # Affichage des métriques
+    print("Évaluation des prédictions de volatilité :")
+    print(f"Mean Squared Error (MSE): {mse:.4f}")
+    print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"R² Score: {r2:.4f}")
