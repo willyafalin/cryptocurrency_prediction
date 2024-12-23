@@ -23,3 +23,4 @@ TestResults.xml
 
 # checkpoints
 .ipynb_checkpoints/
+__pycache__/

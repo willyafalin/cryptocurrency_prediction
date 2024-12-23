@@ -32,6 +32,9 @@ from sklearn.preprocessing import StandardScaler
 
 # Fonction pour extraire des données historiques de Binance
 def get_historical_data(symbol, interval, start_date, end_date):
+    
+    client = Client()
+    
     # Convertir les dates en timestamps
     start_ts = int(pd.Timestamp(start_date).timestamp() * 1000)
     end_ts = int(pd.Timestamp(end_date).timestamp() * 1000)
@@ -638,3 +641,33 @@ def garch_analysis(data, p, q, dist='normal', window_realized=10, last_n_days=60
     print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
     print(f"Mean Absolute Error (MAE): {mae:.4f}")
     print(f"R² Score: {r2:.4f}")
+
+def garch_analysis_for_dashboard(data, p, q, dist='normal', window_realized=10, last_n_days=60):
+    """
+    Analyse GARCH pour extraire les informations nécessaires au Dashboard.
+    Renvoie les données de volatilité réalisée et prédite.
+    """
+    data = data.copy()
+    data.loc[:, 'returns'] = np.log(data['close'] / data['close'].shift(1))
+    data = data.dropna()
+    
+    # Mise à l'échelle des rendements
+    scaler = StandardScaler()
+    data.loc[:, 'scaled_returns'] = scaler.fit_transform(data['returns'].values.reshape(-1, 1))
+    
+    # Ajuster le modèle GARCH
+    model = arch_model(data['scaled_returns'], vol='Garch', p=p, q=q, dist=dist)
+    garch_fit = model.fit(update_freq=5, disp="off")
+    
+    # Prédictions pour les derniers jours
+    forecast = garch_fit.forecast(horizon=1, start=data.index[-last_n_days])
+    data.loc[:, 'predicted_volatility_scaled'] = np.nan
+    data.loc[forecast.variance.index, 'predicted_volatility_scaled'] = np.sqrt(forecast.variance.values[:, 0])
+    
+    # Calculer la volatilité réalisée
+    data.loc[:, 'realized_volatility'] = data['scaled_returns'].rolling(window=window_realized).std()
+    
+    # Récupérer les derniers jours de données
+    data_last_n = data.iloc[-last_n_days:]
+    
+    return data_last_n
