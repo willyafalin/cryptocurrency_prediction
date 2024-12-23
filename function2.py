@@ -485,10 +485,259 @@ def generate_sequences(df, seq_length):
     return np.array(xs), np.array(ys)
 
 
+# Function to visualize RNN predictions
+def plot_rnn_predictions(train_values, test_values, predictions):
+    """
+    Purpose: Display the real and predicted prices using RNN model predictions.
+
+    Input: 
+    - train_values: numpy array, the real training prices
+    - test_values: numpy array, the real testing prices
+    - predictions: numpy array, the predicted prices by the model
+
+    Output: None (Generates a plot)
+    """
+    
+    # Combine train and test values
+    combined_y = np.concatenate([train_values, test_values])
+
+    # Create a time axis for the full dataset
+    time_axis = np.arange(len(combined_y))
+
+    # Identify the starting point for test_values in the combined array
+    test_start_idx = len(train_values)
+
+    # Plotting
+    plt.figure(figsize=(12, 6))
+
+    # Plot train values
+    plt.plot(time_axis[:test_start_idx], combined_y[:test_start_idx], label='Real Price (Train)', color='blue')
+
+    # Plot test values
+    plt.plot(time_axis[test_start_idx:], combined_y[test_start_idx:], label='Real Price (Test)', color='orange')
+
+    # Plot predicted values over test values
+    plt.plot(time_axis[test_start_idx:], predictions, label='Predicted Values', color='green', linestyle='--')
+
+    plt.title('Full Data with Real and Predicted Prices')
+    plt.xlabel('Time')
+    plt.ylabel('Price')
+    plt.legend()
+    plt.show()
+
+# Function to create and train an LSTM model for time series prediction
+def build_lstm_model(X, y):
+    """
+    Purpose: Develop and train an LSTM model on the provided data to forecast time series values.
+
+    Input: 
+    - X, y: type numpy array, X represents the input sequences and y represents the target values
+
+    Output: 
+    - y_train, y_test: numpy arrays, utilized to plot and compare predictions 
+    - predicted_values: numpy array, the model's predictions on the test set
+    """
+    
+    # Partition the data into training and testing sets
+    train_size = int(len(X) * 0.7)
+    X_train, X_test = X[:train_size], X[train_size:]
+    y_train, y_test = y[:train_size], y[train_size:]
+
+    # Construct the LSTM model
+    model = Sequential([
+        LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], 1)),  # LSTM layer with 50 units and return sequences
+        Dropout(0.2),  # Dropout layer to mitigate overfitting
+        LSTM(50, return_sequences=False),  # Second LSTM layer
+        Dropout(0.2),  # Second Dropout layer
+        Dense(25),  # Dense layer with 25 units
+        Dense(1)  # Output layer with a single unit
+    ])
+
+    # Compile the model
+    model.compile(optimizer='adam', loss='mean_squared_error')  # Use Adam optimizer and mean squared error loss
+    model.fit(X_train, y_train, batch_size=351, epochs=100)  # Train the model for 100 epochs with a batch size of 351
+    predicted_values = model.predict(X_test)  # Predict on the test set
+
+    return y_train, y_test, predicted_values
+
+# Function to predict future prices with LSTM model using recursive prediction
+def recursive_lstm_prediction(X, y, future_steps):
+    """
+    Purpose: Forecast future prices using LSTM model. 
+    The model predicts the next value and utilizes it to forecast subsequent values recursively.
+
+    Input: 
+    - X, y: type numpy array, X represents the historical prices and y represents the prices we want to train the model with 
+    - future_steps: type int, number of periods we want to predict 
+
+    Output: type list containing the realized prices and the future prices at the end of the list
+    """
+    
+    # Construct the LSTM model
+    model = Sequential([
+        LSTM(50, return_sequences=True, input_shape=(X.shape[1], 1)),  # LSTM layer with 50 units and return sequences
+        Dropout(0.2),  # Dropout layer to mitigate overfitting
+        LSTM(50, return_sequences=False),  # Second LSTM layer
+        Dropout(0.2),  # Second Dropout layer
+        Dense(25),  # Dense layer with 25 units
+        Dense(1)  # Output layer with a single unit
+    ])
+
+    # Compile the model
+    model.compile(optimizer='adam', loss='mean_squared_error')  # Use Adam optimizer and mean squared error loss
+    model.fit(X, y, batch_size=351, epochs=100)  # Train for 100 epochs with a batch size of 351
+    
+    # Initialize predictions with the last segment of y
+    prediction = y[-X.shape[1]:].tolist()
+
+    # Recursively forecast future prices
+    while len(prediction) - X.shape[1] < future_steps:
+        input_sequence = np.array([prediction[-X.shape[1]:]])
+        next_prediction = model.predict(input_sequence)
+        prediction.append(next_prediction[0][0])
+    
+    return prediction
+
+# Function to inverse scale the data to find the original format after prediction
+def reverse_scaling(predicted_values, original_df):
+    """
+    Purpose: Reverse scale the data to recover the original format after prediction.
+
+    Input: 
+    - predicted_values: type numpy array containing the data to inverse scale 
+    - original_df: type pandas DataFrame, the original data with unscaled values 
+
+    Output: numpy array with the unscaled values
+    """
+
+    # Convert predicted values to DataFrame
+    temp_df = pd.DataFrame(predicted_values)
+    
+    # Define the reverse scaling function
+    inv_scale = lambda z: z * (original_df['high'].max() - original_df['low'].min()) + original_df['low'].min()
+    
+    # Apply the reverse scaling function to the DataFrame
+    unscaled_values = np.array(temp_df.apply(inv_scale))
+
+    return unscaled_values
 
 
 
 
+
+# Function for GARCH analysis on a given DataFrame
+def perform_garch_analysis(df, p, q, distribution='normal', window=10, last_days=60):
+    """
+    Perform GARCH analysis on a given DataFrame without displaying intermediate steps.
+
+    Input:
+    - df: pandas DataFrame
+    - p, q: Integers, order of the GARCH model
+    - distribution: String, distribution assumption for the model (default: 'normal')
+    - window: Integer, window size for realized volatility calculation (default: 10)
+    - last_days: Integer, number of last days to include in the forecast (default: 60)
+
+    Output:
+    - Visualizes the realized and predicted volatility for the last days
+    - Prints evaluation metrics (MSE, RMSE, MAE, R² Score)
+    """
+    # Step 1: Calculate log returns
+    df = df.copy()  # Ensure the original DataFrame remains unchanged
+    df.loc[:, 'returns'] = np.log(df['close'] / df['close'].shift(1))
+    df = df.dropna()
+    
+    # Scale the returns
+    scaler = StandardScaler()
+    df.loc[:, 'scaled_returns'] = scaler.fit_transform(df['returns'].values.reshape(-1, 1))
+    
+    # Fit the GARCH model
+    model = arch_model(df['scaled_returns'], vol='Garch', p=p, q=q, dist=distribution)
+    garch_fit = model.fit(update_freq=5, disp="off")  # Suppress output
+    
+    # Forecast for the last days
+    forecast = garch_fit.forecast(horizon=1, start=df.index[-last_days])
+    df.loc[:, 'predicted_volatility_scaled'] = np.nan
+    df.loc[forecast.variance.index, 'predicted_volatility_scaled'] = np.sqrt(forecast.variance.values[:, 0])
+    
+    # Calculate realized volatility
+    df.loc[:, 'realized_volatility'] = df['scaled_returns'].rolling(window=window).std()
+    
+    # Visualization
+    data_nor = df.iloc[-(last_days * 2):]
+    data_last_n = df.iloc[-last_days:]
+    
+    plt.figure(figsize=(12, 6))
+    plt.plot(data_nor.index, data_nor['realized_volatility'], label="Realized Volatility", color='blue')
+    plt.plot(data_last_n.index, data_last_n['predicted_volatility_scaled'], label="Predicted Volatility", color='orange')
+    plt.title(f"Realized vs Predicted Volatility (GARCH) - Last {last_days} Days")
+    plt.xlabel("Date")
+    plt.ylabel("Volatility (Scaled)")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    
+    # Calculate metrics
+    realized_volatility = data_last_n['realized_volatility'].dropna()
+    predicted_volatility = data_last_n['predicted_volatility_scaled'].dropna()
+    
+    # Align indices
+    realized_volatility = realized_volatility.loc[predicted_volatility.index]
+    
+    mse = mean_squared_error(realized_volatility, predicted_volatility)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(realized_volatility, predicted_volatility)
+    r2 = r2_score(realized_volatility, predicted_volatility)
+    
+    # Print metrics
+    print("Volatility Prediction Evaluation:")
+    print(f"Mean Squared Error (MSE): {mse:.4f}")
+    print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"R² Score: {r2:.4f}")
+
+
+# Function for GARCH analysis to extract necessary information for the dashboard
+def garch_analysis_dashboard(df, p, q, distribution='normal', window=10, last_days=60):
+
+    """
+    Perform GARCH analysis to extract necessary information for the dashboard.
+    Returns the realized and predicted volatility data.
+
+    Input:
+    - df: pandas DataFrame
+    - p, q: Integers, order of the GARCH model
+    - distribution: String, distribution assumption for the model (default: 'normal')
+    - window: Integer, window size for realized volatility calculation (default: 10)
+    - last_days: Integer, number of last days to include in the forecast (default: 60)
+
+    Output:
+    - pandas DataFrame with realized and predicted volatility for the last days
+    """
+
+    df = df.copy()
+    df.loc[:, 'returns'] = np.log(df['close'] / df['close'].shift(1))
+    df = df.dropna()
+    
+    # Scale the returns
+    scaler = StandardScaler()
+    df.loc[:, 'scaled_returns'] = scaler.fit_transform(df['returns'].values.reshape(-1, 1))
+    
+    # Fit the GARCH model
+    model = arch_model(df['scaled_returns'], vol='Garch', p=p, q=q, dist=distribution)
+    garch_fit = model.fit(update_freq=5, disp="off")
+    
+    # Forecast for the last days
+    forecast = garch_fit.forecast(horizon=1, start=df.index[-last_days])
+    df.loc[:, 'predicted_volatility_scaled'] = np.nan
+    df.loc[forecast.variance.index, 'predicted_volatility_scaled'] = np.sqrt(forecast.variance.values[:, 0])
+    
+    # Calculate realized volatility
+    df.loc[:, 'realized_volatility'] = df['scaled_returns'].rolling(window=window).std()
+    
+    # Retrieve the last days of data
+    data_last_n = df.iloc[-last_days:]
+    
+    return data_last_n
 
 
 
