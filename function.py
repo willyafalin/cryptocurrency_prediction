@@ -666,32 +666,136 @@ def garch_analysis(data, p, q, dist='normal', window_realized=10, last_n_days=60
     print(f"Mean Absolute Error (MAE): {mae:.4f}")
     print(f"R² Score: {r2:.4f}")
 
-def garch_analysis_for_dashboard(data, p, q, dist='normal', window_realized=10, last_n_days=60):
+
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from arch import arch_model
+
+def garch_multi_forecast(
+    data: pd.DataFrame,
+    p: int = 1,
+    q: int = 1,
+    dist: str = 'normal',
+    horizon: int = 5,
+    window_realized: int = 10
+) -> pd.DataFrame:
     """
-    Analyse GARCH pour extraire les informations nécessaires au Dashboard.
-    Renvoie les données de volatilité réalisée et prédite.
+    Effectue un multi-step forecast GARCH (jusqu'à 'horizon' pas),
+    à partir des rendements log scalés. Renvoie un DataFrame comprenant
+    l'historique et les colonnes de prévisions.
+
+    Paramètres
+    ----------
+    data : pd.DataFrame
+        DataFrame contenant au minimum la colonne 'close' (prix).
+    p, q : int
+        Ordres du modèle GARCH(p, q).
+    dist : str
+        Distribution (ex: 'normal', 't', etc.) utilisée par le modèle GARCH.
+    horizon : int
+        Nombre de pas de prévision multi-step.
+    window_realized : int
+        Fenêtre pour calculer la volatilité réalisée sur l’historique.
+
+    Retour
+    ------
+    data_out : pd.DataFrame
+        DataFrame étendu avec :
+         - 'returns' : log-rendements
+         - 'scaled_returns' : rendements standardisés
+         - 'predicted_volatility_scaled_{h}' : volatilité prédite (scaled) à l'horizon h
+         - 'predicted_volatility_original_{h}' : idem déscalé
+         - 'realized_volatility_scaled' : rolling std sur les rendements scalés
+         - 'realized_volatility_original' : idem en échelle d’origine
+         - Les nouveaux index [T+1..T+horizon] (futurs) pour la partie forecast,
+           si reindex=True (voir plus bas).
     """
-    data = data.copy()
-    data.loc[:, 'returns'] = np.log(data['close'] / data['close'].shift(1))
-    data = data.dropna()
-    
-    # Mise à l'échelle des rendements
+
+    # Copie des données pour ne pas modifier l'original
+    df = data.copy()
+    df.dropna(subset=['close'], inplace=True)
+
+    # 1) Calculer les log-rendements
+    df['returns'] = np.log(df['close'] / df['close'].shift(1))
+    df.dropna(subset=['returns'], inplace=True)
+
+    # 2) Mise à l'échelle (standardisation) des rendements
     scaler = StandardScaler()
-    data.loc[:, 'scaled_returns'] = scaler.fit_transform(data['returns'].values.reshape(-1, 1))
-    
-    # Ajuster le modèle GARCH
-    model = arch_model(data['scaled_returns'], vol='Garch', p=p, q=q, dist=dist)
-    garch_fit = model.fit(update_freq=5, disp="off")
-    
-    # Prédictions pour les derniers jours
-    forecast = garch_fit.forecast(horizon=1, start=data.index[-last_n_days])
-    data.loc[:, 'predicted_volatility_scaled'] = np.nan
-    data.loc[forecast.variance.index, 'predicted_volatility_scaled'] = np.sqrt(forecast.variance.values[:, 0])
-    
-    # Calculer la volatilité réalisée
-    data.loc[:, 'realized_volatility'] = data['scaled_returns'].rolling(window=window_realized).std()
-    
-    # Récupérer les derniers jours de données
-    data_last_n = data.iloc[-last_n_days:]
-    
-    return data_last_n
+    df['scaled_returns'] = scaler.fit_transform(df['returns'].values.reshape(-1, 1))
+
+    # 3) Ajuster un GARCH(p, q) sur les rendements scalés
+    #    vol='Garch' par défaut ; distribution selon 'dist'
+    am = arch_model(df['scaled_returns'], p=p, q=q, vol='Garch', dist=dist)
+    res = am.fit(update_freq=5, disp='off')
+
+    # 4) Prévision multi-step GARCH
+    #    Dans la doc arch, .forecast(horizon=H, reindex=False)
+    #    renvoie un objet avec .mean, .variance, etc.
+    #    => .variance est un DataFrame (indexé), colonnes 0..(horizon-1).
+    multi_fc = res.forecast(horizon=horizon, reindex=False)
+
+    # multi_fc.variance : shape (1 + nb_in_sample, horizon)
+    # Les dernières lignes correspondent aux prévisions hors-échantillon,
+    # c-à-d la dernière ligne => steps [1..horizon].
+    var_forecast = multi_fc.variance.values[-1, :]  # shape (horizon,)
+
+    # Convertir en écart-type (toujours "scaled")
+    sigma_forecast_scaled = np.sqrt(var_forecast)  # tableau 1D de longueur 'horizon'
+
+    # Déscaler (si scaled_return = (return - mean) / std,
+    # => vol_original = vol_scaled * std)
+    sigma_forecast_original = sigma_forecast_scaled * scaler.scale_[0]
+
+    # 5) Stocker ces prédictions dans le DataFrame
+    #    a) Sur l'historique : on garde la volatilité réalisée, etc.
+    #    b) Pour les horizons futurs, on crée un index ou on étend le DataFrame.
+
+    # Volatilité réalisée sur l'historique (scaled)
+    df['realized_volatility_scaled'] = (
+        df['scaled_returns'].rolling(window=window_realized).std()
+    )
+    # En échelle d’origine
+    df['realized_volatility_original'] = (
+        df['realized_volatility_scaled'] * scaler.scale_[0]
+    )
+
+    # Pour ranger les prévisions multi-step, on peut soit :
+    # - Ajouter des colonnes au df existant (ex: predicted_volatility_scaled_1, _2, etc.)
+    # - Créer un mini df "futur" indexé [T+1..T+horizon].
+    # Ici, on va faire les deux : colonnes + un DF futur.
+
+    # a) Ajouter des colonnes direct
+    for h in range(1, horizon + 1):
+        df[f'predicted_volatility_scaled_{h}'] = np.nan
+        df[f'predicted_volatility_original_{h}'] = np.nan
+
+    # Ajouter en fin de DataFrame
+    last_idx = df.index[-1]  # ex: 999
+    # On créé un nouvel index pour le futur : [last_idx+1..last_idx+horizon]
+    future_index = pd.RangeIndex(start=last_idx + 1, stop=last_idx + 1 + horizon)
+
+    # Pour la future zone
+    df_future = pd.DataFrame(index=future_index)
+
+    # Remplir df_future avec les prédictions
+    for h in range(1, horizon + 1):
+        col_scaled = f'predicted_volatility_scaled_{h}'
+        col_orig = f'predicted_volatility_original_{h}'
+        # Valeur issue du vecteur sigma_forecast_{scaled, original}
+        vol_scaled_h = sigma_forecast_scaled[h - 1]
+        vol_orig_h = sigma_forecast_original[h - 1]
+
+        # Option 1 : stocker dans df_future
+        df_future[col_scaled] = np.nan
+        df_future[col_orig] = np.nan
+        df_future.at[future_index[0], col_scaled] = vol_scaled_h
+        df_future.at[future_index[0], col_orig] = vol_orig_h
+
+        # Option 2 : On pourrait aussi remplir la dernière ligne de df
+        # pour h=1, etc. Mais ici on choisit de tout stocker dans df_future
+
+    # 6) Concaténer historique + futur
+    data_out = pd.concat([df, df_future], axis=0)
+
+    return data_out
