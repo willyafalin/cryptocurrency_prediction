@@ -454,7 +454,31 @@ def create_sequences(scaled_data, sequence_length):
         ys.append(y)
     return np.array(xs), np.array(ys)
 
+def create_sequences_recursive(scaled_data, sequence_length):
 
+    """
+    Aim : we want to change the format of the data to have an array of list of length sequence_length
+    and another array of the shifted values which are the price we want to predict 
+
+    Input : 
+    scaled_data : type pandas DataFrame
+    sequence_length : type int wich is the length of the slice
+
+    Output : Two numpy arrays
+
+    """
+
+   
+    xs, ys = [], []
+    # Extract the column of data we want to predict (The close price)
+    data=scaled_data.iloc[:, 4][:-5]
+    # Iterate through the data to create sequences
+    for i in range(len(data) - sequence_length):
+        x = data[i:(i + sequence_length)] # Input sequence
+        y = data[i + sequence_length] # Target value
+        xs.append(x)
+        ys.append(y)
+    return np.array(xs), np.array(ys)
 
 def visualize_RNN_prediction(y_train, y_test,predicted_values):
     # Combining y_train and y_test
@@ -614,11 +638,11 @@ def garch_analysis(data, p, q, dist='normal', window_realized=10, last_n_days=60
     data_last_n = data.iloc[-last_n_days:]
     
     plt.figure(figsize=(12, 6))
-    plt.plot(data_nor.index, data_nor['realized_volatility'], label="Volatilité réalisée", color='blue')
-    plt.plot(data_last_n.index, data_last_n['predicted_volatility_scaled'], label="Volatilité prédite", color='orange')
-    plt.title(f"Volatilité réalisée vs prédite (GARCH) - {last_n_days} derniers jours")
+    plt.plot(data_nor.index, data_nor['realized_volatility'], label="Realized Volatility", color='blue')
+    plt.plot(data_last_n.index, data_last_n['predicted_volatility_scaled'], label="Predicted Volatility", color='orange')
+    plt.title("Realized vs Predicted Volatility (GARCH)")
     plt.xlabel("Date")
-    plt.ylabel("Volatilité (Scalée)")
+    plt.ylabel("Scaled Volatility")
     plt.legend()
     plt.grid(True)
     plt.show()
