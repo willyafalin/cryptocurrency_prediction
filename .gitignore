@@ -26,4 +26,4 @@ TestResults.xml
 __pycache__/
 
 # Dataset
-.csv
+*.csv
