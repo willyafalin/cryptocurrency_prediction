@@ -24,3 +24,6 @@ TestResults.xml
 # checkpoints
 .ipynb_checkpoints/
 __pycache__/
+
+# Dataset
+.csv

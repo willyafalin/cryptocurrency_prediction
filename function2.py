@@ -34,50 +34,72 @@ from sklearn.preprocessing import StandardScaler
 
 
 # Function to extract historical data from Binance
-def fetch_binance_data(pair, freq, start, end):
+def fetch_binance_data_full(symbol, interval, start_date, end_date):
     """
-    Purpose: Retrieve historical cryptocurrency data from Binance within a specified time range.
+    Fetch historical cryptocurrency data from Binance for large time ranges.
     
-    Input:
-    - pair: type string, the trading pair (e.g., 'BTC/USD')
-    - freq: type string, frequency of data (e.g., '1day', '5min')
-    - start: type string, start date in 'YYYY-MM-DD' format
-    - end: type string, end date in 'YYYY-MM-DD' format
-    
-    Output: 
-    - data_frame: pandas DataFrame containing historical data including 'timestamp', 'open', 'high', 'low', 'close', 'volume'
+    Parameters:
+        symbol (str): Cryptocurrency pair, e.g., 'BTCUSDT'.
+        interval (str): Kline interval, e.g., Client.KLINE_INTERVAL_1HOUR.
+        start_date (str): Start date in 'YYYY-MM-DD' format.
+        end_date (str): End date in 'YYYY-MM-DD' format.
+
+    Returns:
+        pd.DataFrame: DataFrame containing the historical data.
     """
-    
-    binance_client = Client()  # Set up Binance client
-    
+    # Initialize Binance client
+    client = Client()
+
     # Convert dates to timestamps
-    start_timestamp = int(pd.Timestamp(start).timestamp() * 1000)
-    end_timestamp = int(pd.Timestamp(end).timestamp() * 1000)
+    start_timestamp = int(pd.Timestamp(start_date).timestamp() * 1000)
+    end_timestamp = int(pd.Timestamp(end_date).timestamp() * 1000)
+
     historical_data = []
 
-    # Download data in batches (maximum 1000 candles per request)
+    # Loop to fetch data in batches of 1000 candles
     while start_timestamp < end_timestamp:
-        data_batch = binance_client.get_klines(
-            symbol=pair,
-            interval=freq,
-            limit=1000,
-            startTime=start_timestamp
+        data_batch = client.get_klines(
+            symbol=symbol,
+            interval=interval,
+            limit=1000,  # Maximum allowed by Binance
+            startTime=start_timestamp,
+            endTime=end_timestamp  # Ensure the batch doesn't exceed the desired end time
         )
+        
         if not data_batch:
-            break
-        historical_data.extend(data_batch)
-        start_timestamp = data_batch[-1][0] + 1  # Move to the next batch
-        time.sleep(0.1)  # Adhere to API rate limits
+            break  # Stop if no data is returned
 
-    # Convert data into a DataFrame
-    data_frame = pd.DataFrame(historical_data, columns=[
+        historical_data.extend(data_batch)
+
+        # Move start_timestamp to the next batch
+        last_timestamp = data_batch[-1][0]
+        
+        # If the last timestamp is already at or beyond the end time, stop fetching
+        if last_timestamp >= end_timestamp:
+            break
+        
+        start_timestamp = last_timestamp + 1
+        time.sleep(0.1)  # Respect API rate limits
+
+    # Convert to DataFrame
+    df = pd.DataFrame(historical_data, columns=[
         'timestamp', 'open', 'high', 'low', 'close', 'volume',
         'close_time', 'quote_asset_volume', 'number_of_trades',
         'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
     ])
-    data_frame['timestamp'] = pd.to_datetime(data_frame['timestamp'], unit='ms')  # Convert to a readable format
-    data_frame[['open', 'high', 'low', 'close', 'volume']] = data_frame[['open', 'high', 'low', 'close', 'volume']].astype(float)
-    return data_frame
+
+    # Convert timestamp to readable date
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+
+    # Select only relevant columns and convert data types
+    df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+    df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+
+    # Filter data strictly within the specified range
+    df = df[(df['timestamp'] >= pd.Timestamp(start_date)) & (df['timestamp'] < pd.Timestamp(end_date))]
+
+    return df
+
 
 
 # Function to visualize data
@@ -300,7 +322,7 @@ def plot_model_predictions(predictions_df, scaled_df, zoom_range=None):
     
     plt.legend(['Real Price', 'Prediction'])
     
-    if zoom_range is not provided: 
+    if zoom_range is not None: 
         plt.xlim(zoom_range[0], zoom_range[1])
     
     plt.title('Prediction of Close Price of BTC/USD for the Last Month by Linear Regression')
@@ -377,7 +399,7 @@ def plot_future_predictions(scaled_df, future_preds, zoom_range=None):
     plt.axvline(x=close_prices.shape[0], color='r', linestyle='--', label='Prediction')
     plt.plot(combined_prices)
     
-    if zoom_range is provided: 
+    if zoom_range is not None: 
         plt.xlim(zoom_range[0], zoom_range[1])
     
     plt.title('Prediction of Close Price of BTC/USD')
@@ -480,6 +502,32 @@ def generate_sequences(df, seq_length):
     for i in range(len(target_data) - seq_length):
         x = target_data[i:(i + seq_length)]  # Input sequence
         y = target_data[i + seq_length]  # Target value
+        xs.append(x)
+        ys.append(y)
+    return np.array(xs), np.array(ys)
+
+def generate_sequences_recursive(scaled_data, sequence_length):
+
+    """
+    Aim : we want to change the format of the data to have an array of list of length sequence_length
+    and another array of the shifted values which are the price we want to predict 
+
+    Input : 
+    scaled_data : type pandas DataFrame
+    sequence_length : type int wich is the length of the slice
+
+    Output : Two numpy arrays
+
+    """
+
+   
+    xs, ys = [], []
+    # Extract the column of data we want to predict (The close price)
+    data=scaled_data.iloc[:, 4][:-5]
+    # Iterate through the data to create sequences
+    for i in range(len(data) - sequence_length):
+        x = data[i:(i + sequence_length)] # Input sequence
+        y = data[i + sequence_length] # Target value
         xs.append(x)
         ys.append(y)
     return np.array(xs), np.array(ys)
