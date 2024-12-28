@@ -30,12 +30,11 @@ The motivation behind our study stems from both the unique characteristics of cr
 **Additional reason to tame this risk-return potential of crypto: the current growth of crypto market value**. Recent news such as the re-election of Donald Trump caused a steady increase of the value of Bitcoin. On top of this, current global geopolitical and the economic disruptions that followed are one of the many drivers for finding new safe assets to invest in. 
 
 **The use of Machine learning in our project**. On a more personal note, it is increasingly established that Machine Learning has a transformative potential in this century, with far-reaching societal implications. Our project reflects our interest in applying machine learning models to address real-world problems, more specifically applied to financial economics issues. 
-on a more personal note, l'usage du machine learning : utile de plus en plus pour la societe, transformatif dans le siecle - c’est une evidence. By leveraging ML models that are groundbreaking, we can apply this innovation to the economy—here, targeting a specific segment of the financial market. Over time, such approaches could even improve the management of financial markets on a broader scale.
+on a more personal note, l'usage du machine learning : utile de plus en plus pour la societe, transformatif dans le siecle - c’est une evidence. By leveraging ML models that are groundbreaking, we can apply this innovation to the economy. Here, targeting a specific segment of the financial market. Over time, such approaches could even improve the management of financial markets on a broader scale.
 
-On va le voir qu'on reussit a repondre a ces trois aspects 
+In this project, we try to address these three motivations.
 
 # The Data we used for this project 
-
 
 
 Les donnees et exploration 
