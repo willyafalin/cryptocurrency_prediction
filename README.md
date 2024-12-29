@@ -39,7 +39,7 @@ The data we retrived in this project come from APIs. In our exploration phase of
 
 In the first part of our project, we only used data on the Bitcoin cryptocurrency to determine the models we would use to build the efficient frontier, as presented in 1.1 and 1.2 (Prediction of crypto price at the close of the day, and prediction of the volatility of the asset).
 
-One last thing to note on the data, is that we used daily intervals first for determining a suitable model. After that the predictions of a model was considered comparably better than other models, we used hourly data, in order to have more data points for a given period of time. This allowed to use less complex data as well as reducing the time to run codes. 
+One last thing to note on the data, is that we used daily intervals first for determining a suitable model. After that the predictions of a model was considered comparably better than other models, we used hourly data, in order to have more data points for a given period of time. This allowed to use less complex data as well as reducing the time to run codes, for our exploration phase.
 
 # 4. Plan of the project (Structure of the Main file)
 
@@ -82,7 +82,7 @@ The section IV. (Dashboard) is run with the `dashboard.py` code. First, run the 
 - For this section, we advise using an IDE (such as visual studio code) and launch the aforementioned snippet in the terminal (click [here](https://datalab.sspcloud.fr/launcher/ide/vscode-python?name=vscode-python&version=2.1.19&s3=region-ec97c721) to use SSP cloud with vs-code, or on the orange badge on top of this page).
 - While you use the dashboard, keep the IDE running in the background.
 
-Section V. runs the efficient frontier dashboard. In the same fashion as for section IV, run `portfolio_optimization.py` and type in the Terminal the command $\texttt{streamlit run portfolio_optimization.py}$ .
+Section V. runs the efficient frontier dashboard. In the same fashion as for section IV, run `portfolio\_optimization.py` and type in the Terminal the command $\texttt{streamlit run portfolio_optimization.py}$ .
 
 So, the full code in the Terminal on visual-studio code to run in order to reproduce the entirety project is such:
 
