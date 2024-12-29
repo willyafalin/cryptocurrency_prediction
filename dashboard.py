@@ -1,38 +1,46 @@
+# -------------------------------------------------
+# IMPORTS
+# -------------------------------------------------
 import streamlit as st
 import time
 from PIL import Image
-import function  # On suppose que garch_multi_forecast est dedans
+import function2 
 from datetime import datetime
 import pandas as pd
 import numpy as np
 from binance.client import Client
-from datetime import datetime
 
-# Plotly
+# For visualization
 import plotly.graph_objects as go
 
-# ------------------------------------------------------------------
-# CURRENT DATE
+
+# -------------------------------------------------
+# CURRENT DATE CONFIGURATION
+# -------------------------------------------------
+# Get the current date and format it
 time_now = datetime.now()
 format_date = "%d %b, %Y"
 date = time_now.strftime(format_date)
 
-# One year ago (simple string manipulation)
+# Calculate the date one year ago
 date_ = date[:-4] + str(int(date[-4:]) - 1)
 
-# Start/end dates
+# Define start and end dates
 start_date = date_
 end_date = date
 
-# ------------------------------------------------------------------
-# STREAMLIT UI
 
+# -------------------------------------------------
+# STREAMLIT USER INTERFACE
+# -------------------------------------------------
+# Dropdown to select the cryptocurrency pair
 crypto_selectbox = st.selectbox(
-    'Choose your Cryptocurrency', 
-    ('BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'SOLUSDT', 
+    'Choose your Cryptocurrency',
+    ('BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'SOLUSDT',
      'ADAUSDT', 'DOGEUSDT', 'TRXUSDT', 'USDCUSDT')
 )
 
+# Radio buttons and sliders for time interval selection
 t = None
 select_time = st.radio('Choose the Data interval', ['Hourly', 'Daily'])
 
@@ -43,120 +51,109 @@ else:
     select_days = st.slider('Choose the time in days to predict', 1, 10, 1)
     t = select_days
 
+# Button to trigger predictions
 button_prediction = st.button('Submit data')
 
-interval = None
-data = None
-scaled_data = None
 
-# ------------------------------------------------------------------
+# -------------------------------------------------
 # MAIN LOGIC
-
+# -------------------------------------------------
 if button_prediction:
     with st.spinner('Prediction in progress ...'):
-        
-        # 1) Fetch historical data
+
+        # -------------------------------------------------
+        # FETCH HISTORICAL DATA
+        # -------------------------------------------------
+        # Determine the interval (hourly or daily)
         interval = (
-            Client.KLINE_INTERVAL_1HOUR 
-            if select_time == 'Hourly' 
+            Client.KLINE_INTERVAL_1HOUR
+            if select_time == 'Hourly'
             else Client.KLINE_INTERVAL_1DAY
         )
-        data = function.get_historical_data(
+        # Retrieve historical data using the custom function
+        data = function2.fetch_binance_data_full(
             crypto_selectbox, interval, start_date, end_date
         )
 
-        # 2) LSTM PART: Scale the data & build sequences
-        scaled_data = function.scaling_data(data)
-        X, y = function.create_sequences(scaled_data, sequence_length=10)
-        
-        # 3) LSTM recursive prediction
-        prediction = function.recursive_prediction(X, y, t)
-        
-        # 4) Inverse scaling back to original price units
-        prediction = function.inverse_scalling(prediction, data)
-        
-        # Les t derniers points prédits (futurs)
+        # -------------------------------------------------
+        # LSTM PART: SCALE DATA AND PREDICT PRICES
+        # -------------------------------------------------
+        # Scale the data and create sequences for LSTM
+        scaled_data = function2.apply_minmax_scaler(data)
+        X, y = function2.generate_sequences(scaled_data, sequence_length=10)
+
+        # Perform recursive predictions with LSTM
+        prediction = function2.recursive_lstm_prediction(X, y, t)
+
+        # Convert predictions back to the original scale
+        prediction = function2.reverse_scaling(prediction, data)
+
+        # Store predictions in a DataFrame
         df = pd.DataFrame(prediction[-t:], columns=['Price USD'])
-        df.reset_index(drop=True, inplace=True)  
-        # => index 0..(t-1), 
-        # la ligne 0 correspond à la prévision de (T+1),
-        # la ligne 1 -> (T+2), etc.
+        df.reset_index(drop=True, inplace=True)
 
-        # ------------------------------------------------------------------
-        # 5) GARCH PART: Paramètres GARCH
+        # -------------------------------------------------
+        # GARCH PART: CALCULATE VOLATILITY
+        # -------------------------------------------------
+        # Define GARCH parameters based on time interval
         if select_time == 'Hourly':
-            p, q, dist = 2, 2, 't'      # GARCH(2,2) with t-student
+            p, q, dist = 2, 2, 't'  # GARCH(2,2) with t-distribution
         else:
-            p, q, dist = 1, 1, 'normal' # GARCH(1,1) with normal dist
+            p, q, dist = 1, 1, 'normal'  # GARCH(1,1) with normal distribution
 
-        # On appelle la NOUVELLE FONCTION multi-step GARCH
-        # qu'on suppose définie dans "function.py"
-        # garch_multi_forecast(data, p, q, dist='normal', horizon=5, window_realized=10)
-        horizon = t
-        garch_result = function.garch_multi_forecast(
+        # Call the multi-step GARCH function
+        garch_result = function2.garch_multi_forecast(
             data=data,
             p=p,
             q=q,
             dist=dist,
-            horizon=horizon,
+            horizon=t,
             window_realized=10
         )
-        
-        # garch_result contient:
-        #   - 'predicted_volatility_scaled_1' ... '_2' ... jusqu'à '_t'
-        #   - 'predicted_volatility_original_1' ... etc.
-        # On veut associer le pas i (ligne i dans df) avec 'predicted_volatility_scaled_i'.
-        
-        # Pour simplifier, on va créer une nouvelle colonne 'Volatility' dans df 
-        # => la "volatilité" correspond au i-ème step. 
-        # i varie de 1 à t. 
-        # Sur la ligne 0 du df => i=1 => on prend 'predicted_volatility_original_1'
-        # Sur la ligne 1 => i=2 => on prend 'predicted_volatility_original_2'
-        # etc.
 
-        # On crée un array vide
+        # Extract predicted volatility for each step
         vol_array = np.zeros(t)
         for i in range(t):
             col_name = f'predicted_volatility_original_{i+1}'
             if col_name in garch_result.columns:
-                # Récupérer la dernière valeur non-NaN (index T+horizon)
+                # Retrieve the last non-NaN value for this step
                 vals = garch_result[col_name].dropna()
                 if len(vals) > 0:
-                    # On prend la dernière en date
                     vol_array[i] = vals.iloc[-1]
                 else:
                     vol_array[i] = 0.0
             else:
                 vol_array[i] = 0.0
-        
-        # Maintenant, vol_array[i] correspond à la volatilité prévue au step i+1
+
+        # Add the volatility to the DataFrame
         df['Volatility'] = vol_array
 
         st.success('Done', icon="✅")
 
-        # ------------------------------------------------------------------
-        # -- IMPROVEMENT: Log-return-based approach for bands --
+        # -------------------------------------------------
+        # CALCULATE CONFIDENCE BANDS
+        # -------------------------------------------------
+        mu = 0.0   # Assume no drift
+        k = 1.0    # 1-sigma confidence level
 
-        mu = 0.0   # Suppose drift = 0
-        k = 1.0    # 1-sigma band
-
-        # Price(t+1) ~ Price(t) * exp( mu ± k * sigma )
+        # Calculate upper and lower bounds using log-returns
         df['UpperBand'] = df['Price USD'] * np.exp(mu + k * df['Volatility'])
         df['LowerBand'] = df['Price USD'] * np.exp(mu - k * df['Volatility'])
 
-        # ------------------------------------------------------------------
-        # PLOTLY CHART
+        # -------------------------------------------------
+        # PLOTLY VISUALIZATION
+        # -------------------------------------------------
         fig = go.Figure()
 
-        # 1) Predicted Price
+        # Add the predicted price line
         fig.add_trace(go.Scatter(
-            x=df.index, 
-            y=df['Price USD'], 
-            mode='lines', 
+            x=df.index,
+            y=df['Price USD'],
+            mode='lines',
             name='Predicted Price'
         ))
 
-        # 2) Upper Band
+        # Add the upper and lower bounds
         fig.add_trace(go.Scatter(
             x=df.index,
             y=df['UpperBand'],
@@ -165,18 +162,17 @@ if button_prediction:
             name='Upper Band',
             showlegend=False
         ))
-
-        # 3) Lower Band + fill
         fig.add_trace(go.Scatter(
             x=df.index,
             y=df['LowerBand'],
             mode='lines',
-            fill='tonexty',
+            fill='tonexty',  # Fill the area between bounds
             line=dict(width=0),
             name='Lower Band',
             showlegend=False
         ))
 
+        # Customize the layout
         fig.update_layout(
             title="Predicted Price with Multi-step GARCH Volatility Bands",
             xaxis_title="Future Steps (index 0..t-1)",
@@ -184,4 +180,6 @@ if button_prediction:
             template="plotly_white"
         )
 
+        # Display the chart
         st.plotly_chart(fig)
+

@@ -667,10 +667,7 @@ def garch_analysis(data, p, q, dist='normal', window_realized=10, last_n_days=60
     print(f"R² Score: {r2:.4f}")
 
 
-import numpy as np
-import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from arch import arch_model
+
 
 def garch_multi_forecast(
     data: pd.DataFrame,

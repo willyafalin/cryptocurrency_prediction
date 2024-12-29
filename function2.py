@@ -102,56 +102,6 @@ def fetch_binance_data_full(symbol, interval, start_date, end_date):
 
 
 
-# Function to visualize data
-def plot_cryptocurrency(data_frame, currency_pair, time_interval):
-    """
-    Purpose: Plot the closing price of the selected cryptocurrency over the specified interval
-    
-    Input: 
-    - data_frame: type pandas DataFrame
-    - currency_pair: type string, for instance 'BTC/USD'
-    - time_interval: type string, for instance '1day' or '5min'
-    
-    Output: Plot
-    """
-    
-    sns.set(style='darkgrid')
-    plt.title('Closing Price of ' + str(currency_pair))
-    plt.xlabel(str(time_interval))
-    plt.ylabel('USD')
-    # Visualize the closing price
-    sns.lineplot(x=data_frame.index, y=data_frame['close'], color='green')
-    plt.show()
-
-
-# Function to visualize financial data using candlestick chart
-def render_market_candles(data_frame, currency, interval):
-    """
-    Purpose: Display the candlestick chart for the chosen cryptocurrency over the specified interval
-    
-    Input: 
-    - data_frame: type pandas DataFrame
-    - currency: type string, for instance 'BTC/USD'
-    - interval: type string, for instance '1day' or '5min'
-        
-    Output: Plot
-    """
-
-    # Create a candlestick chart using Plotly
-    fig = go.Figure(data=[go.Candlestick(x=data_frame['timestamp'],
-                                     open=data_frame['open'],
-                                     high=data_frame['high'],
-                                     low=data_frame['low'],
-                                     close=data_frame['close'])])
-    
-    fig.update_layout(title='Market Chart of ' + str(currency) + ' per ' + str(interval),
-                  xaxis_title='Date',
-                  yaxis_title='Price in USD',
-                  xaxis_rangeslider_visible=False)
-
-    fig.show()
-
-
 # Function to visualize market data with an indicator
 def plot_with_indicator(data_frame, currency_pair, time_frame, tech_indicator):
     """
@@ -744,50 +694,109 @@ def perform_garch_analysis(df, p, q, distribution='normal', window=10, last_days
     print(f"R² Score: {r2:.4f}")
 
 
-# Function for GARCH analysis to extract necessary information for the dashboard
-def garch_analysis_dashboard(df, p, q, distribution='normal', window=10, last_days=60):
-
+def garch_multi_forecast(
+    data: pd.DataFrame,
+    p: int = 1,
+    q: int = 1,
+    dist: str = 'normal',
+    horizon: int = 5,
+    window_realized: int = 10
+) -> pd.DataFrame:
     """
-    Perform GARCH analysis to extract necessary information for the dashboard.
-    Returns the realized and predicted volatility data.
+    Performs a multi-step GARCH forecast (up to 'horizon' steps)
+    based on scaled log-returns. Returns a DataFrame containing
+    the historical data and forecast columns.
 
-    Input:
-    - df: pandas DataFrame
-    - p, q: Integers, order of the GARCH model
-    - distribution: String, distribution assumption for the model (default: 'normal')
-    - window: Integer, window size for realized volatility calculation (default: 10)
-    - last_days: Integer, number of last days to include in the forecast (default: 60)
+    Parameters
+    ----------
+    data : pd.DataFrame
+        DataFrame containing at least a 'close' column (prices).
+    p, q : int
+        Orders of the GARCH(p, q) model.
+    dist : str
+        Distribution (e.g., 'normal', 't', etc.) used by the GARCH model.
+    horizon : int
+        Number of forecast steps (multi-step horizon).
+    window_realized : int
+        Rolling window size to compute realized volatility on the historical data.
 
-    Output:
-    - pandas DataFrame with realized and predicted volatility for the last days
+    Returns
+    -------
+    data_out : pd.DataFrame
+        Extended DataFrame with:
+         - 'returns': log-returns
+         - 'scaled_returns': standardized returns
+         - 'predicted_volatility_scaled_{h}': predicted volatility (scaled) at horizon h
+         - 'predicted_volatility_original_{h}': same, but unscaled
+         - 'realized_volatility_scaled': rolling std of scaled returns
+         - 'realized_volatility_original': same, in the original scale
+         - New indices [T+1..T+horizon] (future steps) for forecast,
+           if reindex=True (see below).
     """
 
-    df = df.copy()
-    df.loc[:, 'returns'] = np.log(df['close'] / df['close'].shift(1))
-    df = df.dropna()
-    
-    # Scale the returns
+    # Copy the data to avoid modifying the original
+    df = data.copy()
+    df.dropna(subset=['close'], inplace=True)
+
+    # 1) Calculate log-returns
+    df['returns'] = np.log(df['close'] / df['close'].shift(1))
+    df.dropna(subset=['returns'], inplace=True)
+
+    # 2) Scale (standardize) the returns
     scaler = StandardScaler()
-    df.loc[:, 'scaled_returns'] = scaler.fit_transform(df['returns'].values.reshape(-1, 1))
-    
-    # Fit the GARCH model
-    model = arch_model(df['scaled_returns'], vol='Garch', p=p, q=q, dist=distribution)
-    garch_fit = model.fit(update_freq=5, disp="off")
-    
-    # Forecast for the last days
-    forecast = garch_fit.forecast(horizon=1, start=df.index[-last_days])
-    df.loc[:, 'predicted_volatility_scaled'] = np.nan
-    df.loc[forecast.variance.index, 'predicted_volatility_scaled'] = np.sqrt(forecast.variance.values[:, 0])
-    
-    # Calculate realized volatility
-    df.loc[:, 'realized_volatility'] = df['scaled_returns'].rolling(window=window).std()
-    
-    # Retrieve the last days of data
-    data_last_n = df.iloc[-last_days:]
-    
-    return data_last_n
+    df['scaled_returns'] = scaler.fit_transform(df['returns'].values.reshape(-1, 1))
 
+    # 3) Fit a GARCH(p, q) model on the scaled returns
+    am = arch_model(df['scaled_returns'], p=p, q=q, vol='Garch', dist=dist)
+    res = am.fit(update_freq=5, disp='off')
 
+    # 4) Perform multi-step GARCH forecast
+    multi_fc = res.forecast(horizon=horizon, reindex=False)
 
+    # Extract variance forecasts (last row corresponds to steps [1..horizon])
+    var_forecast = multi_fc.variance.values[-1, :]  # shape (horizon,)
+
+    # Convert to standard deviation (still "scaled")
+    sigma_forecast_scaled = np.sqrt(var_forecast)
+
+    # Unscale the forecasts
+    sigma_forecast_original = sigma_forecast_scaled * scaler.scale_[0]
+
+    # 5) Store these predictions in the DataFrame
+    # Realized volatility on the historical data (scaled)
+    df['realized_volatility_scaled'] = (
+        df['scaled_returns'].rolling(window=window_realized).std()
+    )
+    # Realized volatility in the original scale
+    df['realized_volatility_original'] = (
+        df['realized_volatility_scaled'] * scaler.scale_[0]
+    )
+
+    # Add columns for multi-step predictions
+    for h in range(1, horizon + 1):
+        df[f'predicted_volatility_scaled_{h}'] = np.nan
+        df[f'predicted_volatility_original_{h}'] = np.nan
+
+    # Create a future index [last_idx+1..last_idx+horizon]
+    last_idx = df.index[-1]
+    future_index = pd.RangeIndex(start=last_idx + 1, stop=last_idx + 1 + horizon)
+    df_future = pd.DataFrame(index=future_index)
+
+    # Fill df_future with predictions
+    for h in range(1, horizon + 1):
+        col_scaled = f'predicted_volatility_scaled_{h}'
+        col_orig = f'predicted_volatility_original_{h}'
+        vol_scaled_h = sigma_forecast_scaled[h - 1]
+        vol_orig_h = sigma_forecast_original[h - 1]
+
+        df_future[col_scaled] = np.nan
+        df_future[col_orig] = np.nan
+        df_future.at[future_index[0], col_scaled] = vol_scaled_h
+        df_future.at[future_index[0], col_orig] = vol_orig_h
+
+    # 6) Concatenate historical and future data
+    data_out = pd.concat([df, df_future], axis=0)
+
+    return data_out
 
 
