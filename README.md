@@ -79,7 +79,7 @@ Then, the main file `main_project.ipynb` allows to run the sections I., II., III
 
 The section IV. (Dashboard) is run with the `dashboard.py` code. First, run the code `dashboard.py`. Then in the Terminal, type the command $\texttt{streamlit run dashboard.py}$ . You will be given a local host website link (the first link), which allows to access the dashboard. For this section, we advise using an IDE (such as visual code studio) and launch the aforementioned snippet in the terminal (click [here](https://datalab.sspcloud.fr/launcher/ide/vscode-python?name=vscode-python&version=2.1.19&s3=region-ec97c721) to use SSP cloud with vs-studio, or on the orange badge on top of this page).
 
-So the full code in the terminal to run in order to reproduce the entirety project is such:
+So the full code in the terminal on visual-studio to run in order to reproduce the entirety project is such:
 
     ```
     pip install -r requirements.txt
