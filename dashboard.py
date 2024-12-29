@@ -2,6 +2,7 @@
 # IMPORTS
 # -------------------------------------------------
 import streamlit as st
+import random
 import time
 from PIL import Image
 import function2 
@@ -9,6 +10,15 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 from binance.client import Client
+import tensorflow as tf
+
+#Set seed for reproductibility of results
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+
+set_seed(42)
 
 # For visualization
 import plotly.graph_objects as go

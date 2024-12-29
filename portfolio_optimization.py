@@ -2,6 +2,7 @@
 # IMPORTS
 # -------------------------------------------------
 import numpy as np
+import random
 import pandas as pd
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
@@ -9,6 +10,15 @@ from binance.client import Client
 from datetime import datetime, timedelta
 import function2  # Custom functions for data handling and model predictions
 import streamlit as st
+import tensorflow as tf
+
+#Set seed for reproductibility of results
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+
+set_seed(42)
 
 # -------------------------------------------------
 # HELPER FUNCTIONS
