@@ -23,6 +23,7 @@ from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.stattools import kpss 
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from statsmodels.stats.diagnostic import acorr_ljungbox
 import statsmodels
 import datetime
 from binance.client import Client
@@ -270,8 +271,8 @@ def plot_model_predictions(predictions_df, scaled_df, zoom_range=None):
     # Visualize predicted close prices
     plt.plot(predictions_df[['close', 'prediction']])
     
-    plt.legend(['Real Price', 'Prediction'])
-    
+    plt.legend(['Real Price', 'Real, price', 'Prediction'])
+
     if zoom_range is not None: 
         plt.xlim(zoom_range[0], zoom_range[1])
     
