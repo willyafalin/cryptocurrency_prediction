@@ -69,7 +69,8 @@ After having stabilised the models for gains (II.) and volatility (III.) by usin
 The dashboard automatises the data collection over a portfolio of 10 cryptocurries. There is an option to select a given timeframe and a specific crypto to plot for. Then, the plots of the volatility and expected returns for that selected crypto and period are shown.
 
 - V. Closing the model : building the efficient frontier
-Using the returns and volatlities from the same portfolio of 10 cryptos in the dashboard, we present our final result.
+
+Using the returns and volatlities from the same portfolio of 10 cryptos in the dashboard, we present our final result. We obtain the convex combination of cryptocurrencies that optimises the risk-return trade-off. Here, select the cryptocurrencies of interest and the investment time horizon. Be mindful that it may take several minutes for the algorithm to converge.
 
 # 5. Getting started, for replication of the project  
 
@@ -77,9 +78,13 @@ First, run the dependencies with the terminal. The dependencies are stored in `r
 
 Then, the main file `main_project.ipynb` allows to run the sections I., II., III.  
 
-The section IV. (Dashboard) is run with the `dashboard.py` code. First, run the code `dashboard.py`. Then in the Terminal, type the command $\texttt{streamlit run dashboard.py}$ . You will be given a local host website link (the first link), which allows to access the dashboard. For this section, we advise using an IDE (such as visual code studio) and launch the aforementioned snippet in the terminal (click [here](https://datalab.sspcloud.fr/launcher/ide/vscode-python?name=vscode-python&version=2.1.19&s3=region-ec97c721) to use SSP cloud with vs-studio, or on the orange badge on top of this page).
+The section IV. (Dashboard) is run with the `dashboard.py` code. First, run the code `dashboard.py`. Then in the Terminal, type the command $\texttt{streamlit run dashboard.py}$ . You will be given a local host website link (the first link), which allows to access the dashboard. 
+- For this section, we advise using an IDE (such as visual studio code) and launch the aforementioned snippet in the terminal (click [here](https://datalab.sspcloud.fr/launcher/ide/vscode-python?name=vscode-python&version=2.1.19&s3=region-ec97c721) to use SSP cloud with vs-code, or on the orange badge on top of this page).
+- While you use the dashboard, keep the IDE running in the background.
 
-So the full code in the terminal on visual-studio to run in order to reproduce the entirety project is such:
+Section V. runs the efficient frontier dashboard. In the same fashion as for section IV, run `portfolio_optimization.py` and type in the Terminal the command $\texttt{streamlit run portfolio_optimization.py}$
+
+So, the full code in the Terminal on visual-studio code to run in order to reproduce the entirety project is such:
 
     ```
     pip install -r requirements.txt
@@ -87,6 +92,9 @@ So the full code in the terminal on visual-studio to run in order to reproduce t
     
     python3 dashboard.py
     streamlit run dashboard.py # then, select the localhost website link
+
+    python3 portfolio_optimization.py
+    streamlit run portfolio_optimization.py # then, select the localhost website link
     
     ```
 
