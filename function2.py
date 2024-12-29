@@ -31,6 +31,8 @@ import time
 from arch import arch_model
 from sklearn.metrics import mean_absolute_error
 from sklearn.preprocessing import StandardScaler
+import random
+from tensorflow.random import set_seed
 
 
 
