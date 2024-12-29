@@ -80,7 +80,7 @@ if button_prediction:
         # -------------------------------------------------
         # Scale the data and create sequences for LSTM
         scaled_data = function2.apply_minmax_scaler(data)
-        X, y = function2.generate_sequences(scaled_data, sequence_length=10)
+        X, y = function2.generate_sequences(scaled_data, seq_length=10)
 
         # Perform recursive predictions with LSTM
         prediction = function2.recursive_lstm_prediction(X, y, t)
